@@ -1,0 +1,230 @@
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import axios from 'axios';
+import {
+    Container,
+    Typography,
+    Card,
+    CardContent,
+    CardActions,
+    Grid,
+    Button,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    TextField,
+    Alert,
+    CircularProgress,
+    Box
+} from '@mui/material';
+import { useNavigate } from 'react-router-dom';
+import { Add as AddIcon, Delete as DeleteIcon, Home as HomeIcon } from '@mui/icons-material';
+
+const Laundry = () => {
+    const [bookings, setBookings] = useState([]);
+    const [machines, setMachines] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [openBookDialog, setOpenBookDialog] = useState(false);
+    const { user } = useAuth();
+    const navigate = useNavigate();
+
+    const [bookingForm, setBookingForm] = useState({
+        machineId: '',
+        startTime: '',
+        endTime: ''
+    });
+
+    useEffect(() => {
+        if (user) {
+            fetchBookings();
+        }
+    }, [user]);
+
+    const fetchBookings = async () => {
+        try {
+            setLoading(true);
+
+            if (user.roles && user.roles.includes('ADMINISTRATOR')) {
+                const response = await axios.get('http://localhost:8080/api/laundry/bookings', {
+                    headers: { 'X-User-Role': 'ADMINISTRATOR' }
+                });
+                setBookings(response.data);
+            } else if (user.roles && user.roles.includes('STUDENT')) {
+                const response = await axios.get('http://localhost:8080/api/laundry/my-bookings', {
+                    headers: { 'X-User-Id': user.userId }
+                });
+                setBookings(response.data);
+            }
+        } catch (err) {
+            setError('Eroare la încărcarea rezervărilor');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleCreateBooking = async () => {
+        try {
+            await axios.post(
+                'http://localhost:8080/api/laundry/book',
+                null,
+                {
+                    params: bookingForm,
+                    headers: { 'X-User-Id': user.userId }
+                }
+            );
+            setOpenBookDialog(false);
+            setBookingForm({ machineId: '', startTime: '', endTime: '' });
+            fetchBookings();
+        } catch (err) {
+            setError('Eroare la crearea rezervării');
+        }
+    };
+
+    const handleCancelBooking = async (bookingId) => {
+        if (window.confirm('Sigur doriți să anulați această rezervare?')) {
+            try {
+                await axios.delete(
+                    `http://localhost:8080/api/laundry/bookings/${bookingId}`,
+                    {
+                        headers: {
+                            'X-User-Id': user.userId,
+                            'X-User-Role': user.roles && user.roles[0]
+                        }
+                    }
+                );
+                fetchBookings();
+            } catch (err) {
+                setError('Eroare la anularea rezervării');
+            }
+        }
+    };
+
+    if (loading) {
+        return (
+            <Container>
+                <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+                    <CircularProgress />
+                </Box>
+            </Container>
+        );
+    }
+
+    const isAdmin = user.roles && user.roles.includes('ADMINISTRATOR');
+
+    return (
+        <Container maxWidth="lg" sx={{ mt: 4 }}>
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+                <Box display="flex" alignItems="center" gap={2}>
+                    <Button
+                        variant="outlined"
+                        startIcon={<HomeIcon />}
+                        onClick={() => navigate('/')}
+                    >
+                        Înapoi la Dashboard
+                    </Button>
+                    <Typography variant="h4">
+                        Spălătorie
+                    </Typography>
+                </Box>
+                <Button
+                    variant="contained"
+                    color="primary"
+                    startIcon={<AddIcon />}
+                    onClick={() => setOpenBookDialog(true)}
+                >
+                    Rezervă Slot
+                </Button>
+            </Box>
+
+            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+            <Grid container spacing={3} sx={{ mt: 2 }}>
+                {bookings.map((booking) => (
+                    <Grid item xs={12} md={6} key={booking.id}>
+                        <Card>
+                            <CardContent>
+                                <Typography variant="h6" gutterBottom>
+                                    Rezervare #{booking.id}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    <strong>Mașină:</strong> {booking.machine?.machineNumber || 'N/A'}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    <strong>Început:</strong> {booking.startTime ? new Date(booking.startTime).toLocaleString('ro-RO') : 'N/A'}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    <strong>Sfârșit:</strong> {booking.endTime ? new Date(booking.endTime).toLocaleString('ro-RO') : 'N/A'}
+                                </Typography>
+                                {isAdmin && booking.student && (
+                                    <Typography variant="body2" color="text.secondary">
+                                        <strong>Student:</strong> {booking.student.user?.fullName || 'N/A'}
+                                    </Typography>
+                                )}
+                            </CardContent>
+                            <CardActions>
+                                <Button
+                                    size="small"
+                                    color="error"
+                                    startIcon={<DeleteIcon />}
+                                    onClick={() => handleCancelBooking(booking.id)}
+                                >
+                                    Anulează
+                                </Button>
+                            </CardActions>
+                        </Card>
+                    </Grid>
+                ))}
+            </Grid>
+
+            {bookings.length === 0 && (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                    Nu există rezervări pentru spălătorie
+                </Alert>
+            )}
+
+            {/* Book Slot Dialog */}
+            <Dialog open={openBookDialog} onClose={() => setOpenBookDialog(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>Rezervă Slot Spălătorie</DialogTitle>
+                <DialogContent>
+                    <TextField
+                        fullWidth
+                        margin="normal"
+                        label="ID Mașină"
+                        type="number"
+                        value={bookingForm.machineId}
+                        onChange={(e) => setBookingForm({ ...bookingForm, machineId: e.target.value })}
+                        helperText="Introduceți ID-ul mașinii de spălat"
+                    />
+                    <TextField
+                        fullWidth
+                        margin="normal"
+                        label="Ora Început"
+                        type="datetime-local"
+                        InputLabelProps={{ shrink: true }}
+                        value={bookingForm.startTime}
+                        onChange={(e) => setBookingForm({ ...bookingForm, startTime: e.target.value })}
+                    />
+                    <TextField
+                        fullWidth
+                        margin="normal"
+                        label="Ora Sfârșit"
+                        type="datetime-local"
+                        InputLabelProps={{ shrink: true }}
+                        value={bookingForm.endTime}
+                        onChange={(e) => setBookingForm({ ...bookingForm, endTime: e.target.value })}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setOpenBookDialog(false)}>Anulează</Button>
+                    <Button onClick={handleCreateBooking} variant="contained" color="primary">
+                        Rezervă
+                    </Button>
+                </DialogActions>
+            </Dialog>
+        </Container>
+    );
+};
+
+export default Laundry;
